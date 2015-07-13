@@ -1,4 +1,4 @@
-void ListBox::create(Window &parent, unsigned x, unsigned y, unsigned width, unsigned height, const char *text) {
+void ListBox::create(Window &parent, unsigned x, unsigned y, unsigned width, unsigned height, const string &text) {
   widget->window = CreateWindowEx(
     WS_EX_CLIENTEDGE, WC_LISTVIEW, L"",
     WS_CHILD | WS_TABSTOP | WS_VISIBLE |
@@ -48,7 +48,7 @@ void ListBox::resizeColumnsToContent() {
   }
 }
 
-void ListBox::addItem(const char *text) {
+void ListBox::addItem(const string &text) {
   lstring list;
   list.split("\t", text);
   LVITEM item;
@@ -65,15 +65,21 @@ void ListBox::addItem(const char *text) {
     utf16_t wtext(list[i]);
     ListView_SetItemText(widget->window, row, i, wtext);
   }
+
+  //workaround: when there is only one column, the horizontal scrollbar will always appear without this
+  if(listBox->columns == 1) ListView_SetColumnWidth(widget->window, 0, LVSCW_AUTOSIZE_USEHEADER);
 }
 
-void ListBox::setItem(unsigned row, const char *text) {
+void ListBox::setItem(unsigned row, const string &text) {
   lstring list;
   list.split("\t", text);
   for(unsigned i = 0; i < list.size(); i++) {
     utf16_t wtext(list[i]);
     ListView_SetItemText(widget->window, row, i, wtext);
   }
+
+  //workaround: when there is only one column, the horizontal scrollbar will always appear without this
+  if(listBox->columns == 1) ListView_SetColumnWidth(widget->window, 0, LVSCW_AUTOSIZE_USEHEADER);
 }
 
 optional<unsigned> ListBox::selection() {

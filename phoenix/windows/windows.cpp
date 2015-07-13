@@ -142,7 +142,7 @@ unsigned OS::desktopHeight() {
   return GetSystemMetrics(SM_CYSCREEN);
 }
 
-string OS::folderSelect(Window &parent, const char *path) {
+string OS::folderSelect(Window &parent, const string &path) {
   wchar_t wfilename[PATH_MAX + 1] = L"";
   BROWSEINFO bi;
   bi.hwndOwner = &parent != &Window::None ? parent.widget->window : 0;
@@ -166,10 +166,13 @@ string OS::folderSelect(Window &parent, const char *path) {
     }
   }
   if(result == false) return "";
-  return utf8_t(wfilename);
+  string name = utf8_t(wfilename);
+  name.transform("\\", "/");
+  if(name.endswith("/") == false) name.append("/");
+  return name;
 }
 
-string OS::fileOpen(Window &parent, const char *filter, const char *path) {
+string OS::fileOpen(Window &parent, const string &filter, const string &path) {
   string dir = path;
   dir.replace("/", "\\");
 
@@ -212,10 +215,12 @@ string OS::fileOpen(Window &parent, const char *filter, const char *path) {
 
   bool result = GetOpenFileName(&ofn);
   if(result == false) return "";
-  return utf8_t(wfilename);
+  string name = utf8_t(wfilename);
+  name.transform("\\", "/");
+  return name;
 }
 
-string OS::fileSave(Window &parent, const char *filter, const char *path) {
+string OS::fileSave(Window &parent, const string &filter, const string &path) {
   string dir = path;
   dir.replace("/", "\\");
 
@@ -258,7 +263,9 @@ string OS::fileSave(Window &parent, const char *filter, const char *path) {
 
   bool result = GetSaveFileName(&ofn);
   if(result == false) return "";
-  return utf8_t(wfilename);
+  string name = utf8_t(wfilename);
+  name.transform("\\", "/");
+  return name;
 }
 
 static void OS_keyboardProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {

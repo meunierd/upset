@@ -87,7 +87,7 @@ unsigned OS::desktopHeight() {
   return gdk_screen_get_height(gdk_screen_get_default());
 }
 
-string OS::folderSelect(Window &parent, const char *path) {
+string OS::folderSelect(Window &parent, const string &path) {
   string name;
 
   GtkWidget *dialog = gtk_file_chooser_dialog_new(
@@ -108,10 +108,11 @@ string OS::folderSelect(Window &parent, const char *path) {
   }
 
   gtk_widget_destroy(dialog);
+  if(name.endswith("/") == false) name.append("/");
   return name;
 }
 
-string OS::fileOpen(Window &parent, const char *filter, const char *path) {
+string OS::fileOpen(Window &parent, const string &filter, const string &path) {
   string name;
 
   GtkWidget *dialog = gtk_file_chooser_dialog_new(
@@ -148,7 +149,7 @@ string OS::fileOpen(Window &parent, const char *filter, const char *path) {
   return name;
 }
 
-string OS::fileSave(Window &parent, const char *filter, const char *path) {
+string OS::fileSave(Window &parent, const string &filter, const string &path) {
   string name;
 
   GtkWidget *dialog = gtk_file_chooser_dialog_new(

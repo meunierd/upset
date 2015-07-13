@@ -2,7 +2,7 @@
 Application application;
 
 void Application::initialize() {
-  create(128, 128, 256, 256, "Upset v02 ~ http://byuu.org/");
+  create(128, 128, 256, 256, "upset v04");
   #if defined(PLATFORM_WIN)
   font.create("Tahoma", 8);
   #else
@@ -110,37 +110,27 @@ void Application::applyPatch(string sourceFilename, string targetFilename) {
   if(striend(targetFilename, ".ups") == true) { MessageWindow::warning(application, "Target file extension must not be .ups"); return; }
   string outputFilename = string(nall::basename(targetFilename), ".bak");
   file targetExpand;
-  if(targetExpand.open(outputFilename, file::mode_write) == false) { MessageWindow::warning(application, "Cannot open target file for writing"); return; }
+  if(targetExpand.open(outputFilename, file::mode::write) == false) { MessageWindow::warning(application, "Cannot open target file for writing"); return; }
 
-  filemap patchFile, sourceFile, targetFile;
-  patchFile.open(sourceFilename, filemap::mode_read);
-  sourceFile.open(targetFilename, filemap::mode_read);
-  unsigned targetSize = 0;
+  unsigned outputSize = 0;
 
   ups patcher;
-  patcher.apply(
-    patchFile.handle(), patchFile.size(),
-    sourceFile.handle(), sourceFile.size(),
-    (uint8_t*)0, targetSize
-  );
+  filemap sm(sourceFilename, filemap::mode::read);
+  filemap tm(targetFilename, filemap::mode::read);
+  patcher.apply(sm.data(), sm.size(), tm.data(), tm.size(), 0, outputSize);
 
-  targetExpand.seek(targetSize);
+  targetExpand.seek(outputSize);
   targetExpand.close();
-  targetFile.open(outputFilename, filemap::mode_readwrite);
-  targetSize = targetFile.size();
 
   patcher.progress = { &Application::progress, this };
-  ups::result_t result = patcher.apply(
-    patchFile.handle(), patchFile.size(),
-    sourceFile.handle(), sourceFile.size(),
-    targetFile.handle(), targetSize
-  );
+  filemap om(outputFilename, filemap::mode::readwrite);
+  ups::result result = patcher.apply(sm.data(), sm.size(), tm.data(), tm.size(), om.data(), outputSize = om.size());
 
-  patchFile.close();
-  sourceFile.close();
-  targetFile.close();
+  sm.close();
+  tm.close();
+  om.close();
 
-  if(result != ups::result_t::success) {
+  if(result != ups::result::success) {
     unlink(outputFilename);
     MessageWindow::warning(application, "Patching failed");
     return;
@@ -164,19 +154,13 @@ void Application::createPatch(string sourceFilename, string targetFilename) {
   if(striend(targetFilename, ".ups") == true) { MessageWindow::warning(application, "Target file extension must not be .ups"); return; }
   string outputFilename = string(nall::basename(sourceFilename), ".ups");
 
-  filemap sourceFile, targetFile;
-  sourceFile.open(sourceFilename, filemap::mode_read);
-  targetFile.open(targetFilename, filemap::mode_read);
-
   ups patcher;
+  filemap sm(sourceFilename, filemap::mode::read);
+  filemap tm(targetFilename, filemap::mode::read);
   patcher.progress = { &Application::progress, this };
-  ups::result_t result = patcher.create(
-    sourceFile.handle(), sourceFile.size(),
-    targetFile.handle(), targetFile.size(),
-    outputFilename
-  );
+  ups::result result = patcher.create(sm.data(), sm.size(), tm.data(), tm.size(), outputFilename);
 
-  if(result != ups::result_t::success) {
+  if(result != ups::result::success) {
     unlink(outputFilename);
     MessageWindow::warning(application, "Patch creation failed");
     return;

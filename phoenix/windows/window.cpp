@@ -1,4 +1,4 @@
-void Window::create(unsigned x, unsigned y, unsigned width, unsigned height, const char *text) {
+void Window::create(unsigned x, unsigned y, unsigned width, unsigned height, const string &text) {
   widget->window = CreateWindowEx(
     0, L"phoenix_window", utf16_t(text),
     WS_POPUP | WS_SYSMENU | WS_CAPTION | WS_MINIMIZEBOX,
@@ -26,6 +26,18 @@ void Window::setFont(Font &font) {
   SendMessage(window->status, WM_SETFONT, (WPARAM)font.font->font, 0);
 }
 
+Geometry Window::geometry() {
+  RECT position, size;
+  GetWindowRect(widget->window, &position);
+  GetClientRect(widget->window, &size);
+  if(GetWindowLongPtr(window->status, GWL_STYLE) & WS_VISIBLE) {
+    RECT status;
+    GetClientRect(window->status, &status);
+    size.bottom -= status.bottom - status.top;
+  }
+  return Geometry(position.left, position.top, size.right, size.bottom);
+}
+
 void Window::setGeometry(unsigned x, unsigned y, unsigned width, unsigned height) {
   bool isVisible = visible();
   if(isVisible) setVisible(false);
@@ -40,11 +52,11 @@ void Window::setBackgroundColor(uint8_t red, uint8_t green, uint8_t blue) {
   window->brush = CreateSolidBrush(window->brushColor);
 }
 
-void Window::setTitle(const char *text) {
+void Window::setTitle(const string &text) {
   SetWindowText(widget->window, utf16_t(text));
 }
 
-void Window::setStatusText(const char *text) {
+void Window::setStatusText(const string &text) {
   SendMessage(window->status, SB_SETTEXT, 0, (LPARAM)(wchar_t*)utf16_t(text));
 }
 

@@ -16,13 +16,20 @@
 namespace nall {
 
 struct directory {
-  static lstring folders(const char *pathname);
-  static lstring files(const char *pathname);
-  static lstring contents(const char *pathname);
+  static bool exists(const string &pathname);
+  static lstring folders(const string &pathname, const string &pattern = "*");
+  static lstring files(const string &pathname, const string &pattern = "*");
+  static lstring contents(const string &pathname, const string &pattern = "*");
 };
 
 #if defined(_WIN32)
-  inline lstring directory::folders(const char *pathname) {
+  inline bool directory::exists(const string &pathname) {
+    DWORD result = GetFileAttributes(utf16_t(pathname));
+    if(result == INVALID_FILE_ATTRIBUTES) return false;
+    return (result & FILE_ATTRIBUTE_DIRECTORY);
+  }
+
+  inline lstring directory::folders(const string &pathname, const string &pattern) {
     lstring list;
     string path = pathname;
     path.transform("/", "\\");
@@ -34,23 +41,25 @@ struct directory {
     if(handle != INVALID_HANDLE_VALUE) {
       if(wcscmp(data.cFileName, L".") && wcscmp(data.cFileName, L"..")) {
         if(data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-          list.append(string(utf8_t(data.cFileName), "/"));
+          string name = utf8_t(data.cFileName);
+          if(wildcard(name, pattern)) list.append(string(name, "/"));
         }
       }
       while(FindNextFile(handle, &data) != false) {
         if(wcscmp(data.cFileName, L".") && wcscmp(data.cFileName, L"..")) {
           if(data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-            list.append(string(utf8_t(data.cFileName), "/"));
+            string name = utf8_t(data.cFileName);
+            if(wildcard(name, pattern)) list.append(string(name, "/"));
           }
         }
       }
       FindClose(handle);
     }
-    sort(&list[0], list.size());
+    if(list.size() > 0) sort(&list[0], list.size());
     return list;
   }
 
-  inline lstring directory::files(const char *pathname) {
+  inline lstring directory::files(const string &pathname, const string &pattern) {
     lstring list;
     string path = pathname;
     path.transform("/", "\\");
@@ -61,27 +70,36 @@ struct directory {
     handle = FindFirstFile(utf16_t(path), &data);
     if(handle != INVALID_HANDLE_VALUE) {
       if((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
-        list.append(utf8_t(data.cFileName));
+        string name = utf8_t(data.cFileName);
+        if(wildcard(name, pattern)) list.append(name);
       }
       while(FindNextFile(handle, &data) != false) {
         if((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
-          list.append(utf8_t(data.cFileName));
+          string name = utf8_t(data.cFileName);
+          if(wildcard(name, pattern)) list.append(name);
         }
       }
       FindClose(handle);
     }
-    sort(&list[0], list.size());
+    if(list.size() > 0) sort(&list[0], list.size());
     return list;
   }
 
-  inline lstring directory::contents(const char *pathname) {
-    lstring folders = directory::folders(pathname);
-    lstring files = directory::files(pathname);
+  inline lstring directory::contents(const string &pathname, const string &pattern) {
+    lstring folders = directory::folders(pathname);  //pattern search of contents() should only filter files
+    lstring files = directory::files(pathname, pattern);
     foreach(file, files) folders.append(file);
     return folders;
   }
 #else
-  inline lstring directory::folders(const char *pathname) {
+  inline bool directory::exists(const string &pathname) {
+    DIR *dp = opendir(pathname);
+    if(!dp) return false;
+    closedir(dp);
+    return true;
+  }
+
+  inline lstring directory::folders(const string &pathname, const string &pattern) {
     lstring list;
     DIR *dp;
     struct dirent *ep;
@@ -90,16 +108,18 @@ struct directory {
       while(ep = readdir(dp)) {
         if(!strcmp(ep->d_name, ".")) continue;
         if(!strcmp(ep->d_name, "..")) continue;
-        if(ep->d_type & DT_DIR) list.append(string(ep->d_name, "/"));
+        if(ep->d_type & DT_DIR) {
+          if(wildcard(ep->d_name, pattern)) list.append(string(ep->d_name, "/"));
+        }
       }
       closedir(dp);
     }
-    sort(&list[0], list.size());
+    if(list.size() > 0) sort(&list[0], list.size());
     return list;
 
   }
 
-  inline lstring directory::files(const char *pathname) {
+  inline lstring directory::files(const string &pathname, const string &pattern) {
     lstring list;
     DIR *dp;
     struct dirent *ep;
@@ -108,17 +128,19 @@ struct directory {
       while(ep = readdir(dp)) {
         if(!strcmp(ep->d_name, ".")) continue;
         if(!strcmp(ep->d_name, "..")) continue;
-        if((ep->d_type & DT_DIR) == 0) list.append(ep->d_name);
+        if((ep->d_type & DT_DIR) == 0) {
+          if(wildcard(ep->d_name, pattern)) list.append(ep->d_name);
+        }
       }
       closedir(dp);
     }
-    sort(&list[0], list.size());
+    if(list.size() > 0) sort(&list[0], list.size());
     return list;
   }
 
-  inline lstring directory::contents(const char *pathname) {
-    lstring folders = directory::folders(pathname);
-    lstring files = directory::files(pathname);
+  inline lstring directory::contents(const string &pathname, const string &pattern) {
+    lstring folders = directory::folders(pathname);  //pattern search of contents() should only filter files
+    lstring files = directory::files(pathname, pattern);
     foreach(file, files) folders.append(file);
     return folders;
   }

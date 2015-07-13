@@ -6,5 +6,3 @@ synchronize() {
 }
 
 synchronize "nall"
-synchronize "phoenix"
-rm -r phoenix/test*
