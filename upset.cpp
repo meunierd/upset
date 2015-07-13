@@ -1,244 +1,200 @@
-#define QT_CORE_LIB
-#include <QApplication>
-#include <QtGui>
+#include "upset.hpp"
+Application application;
 
-#include <nall/algorithm.hpp>
-#include <nall/crc32.hpp>
-#include <nall/detect.hpp>
-#include <nall/file.hpp>
-#include <nall/platform.hpp>
-#include <nall/stdint.hpp>
-#include <nall/string.hpp>
-#include <nall/utility.hpp>
-using namespace nall;
-
-#include "upset.moc.hpp"
-#include "upset.moc"
-
-UpsetWindow *upsetWindow;
-
-UpsetWindow::UpsetWindow() {
-  setWindowTitle("Upset v01");
-  resize(480, 0);
-
-  layout = new QGridLayout;
-  layout->setAlignment(Qt::AlignTop);
-  layout->setMargin(5);
-  layout->setSpacing(5);
-  setLayout(layout);
-
-  patchLabel = new QLabel("Patch File:");
-  layout->addWidget(patchLabel, 0, 0);
-
-  patchFilename = new QLineEdit;
-  patchFilename->setReadOnly(true);
-  layout->addWidget(patchFilename, 0, 1);
-
-  patchSelect = new QPushButton(" Select ");
-  layout->addWidget(patchSelect, 0, 2);
-
-  targetLabel = new QLabel("Target File:");
-  layout->addWidget(targetLabel, 1, 0);
-
-  targetFilename = new QLineEdit;
-  targetFilename->setReadOnly(true);
-  layout->addWidget(targetFilename, 1, 1);
-
-  targetSelect = new QPushButton(" Select ");
-  layout->addWidget(targetSelect, 1, 2);
-
-  progressBar = new QProgressBar;
-  progressBar->setValue(0);
-  progressBar->setVisible(false);
-  layout->addWidget(progressBar, 2, 0, 1, 2);
-
-  applyButton = new QPushButton(" Apply Patch ");
-  applyButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-  applyButton->setEnabled(false);
-  layout->addWidget(applyButton, 2, 2);
-
+void Application::initialize() {
+  create(128, 128, 256, 256, "Upset v02 ~ http://byuu.org/");
   #if defined(PLATFORM_WIN)
-  move(64, 64);
+  font.create("Tahoma", 8);
+  #else
+  font.create("Sans", 8);
   #endif
-  show();
+  setDefaultFont(font);
 
-  connect(patchSelect, SIGNAL(released()), SLOT(selectPatchFile()));
-  connect(targetSelect, SIGNAL(released()), SLOT(selectTargetFile()));
-  connect(applyButton, SIGNAL(released()), SLOT(applyPatch()));
+  unsigned x = 5, y = 5, labelHeight = 15, buttonHeight = 25;
+
+  modeLabel.create(*this, x, y, 80, labelHeight, "Patch mode:");
+  modeApply.create(*this, x + 85, y, 385, labelHeight, "Apply an existing source UPS patch to target file"); y += labelHeight + 5;
+  modeCreate.create(modeApply, x + 85, y, 385, labelHeight, "Create a new UPS patch from source and target files"); y += labelHeight + 5;
+
+  sourceLabel.create(*this, x, y, 80, buttonHeight, "Source file:");
+  sourcePath.create(*this, x + 85, y, 300, buttonHeight);
+  sourceBrowse.create(*this, x + 390, y, 80, buttonHeight, "Browse ..."); y += buttonHeight + 5;
+
+  targetLabel.create(*this, x, y, 80, buttonHeight, "Target file:");
+  targetPath.create(*this, x + 85, y, 300, buttonHeight);
+  targetBrowse.create(*this, x + 390, y, 80, buttonHeight, "Browse ..."); y += buttonHeight + 5;
+
+  progressBar.create(*this, x, y, 385, buttonHeight);
+  progressBar.setVisible(false);
+  okButton.create(*this, x + 390, y, 80, buttonHeight, "Ok"); y += buttonHeight + 5;
+  okButton.setEnabled(false);
+
+  setGeometry(128, 128, 480, y);
+
+  sourcePath.onChange = targetPath.onChange = { &Application::synchronize, this };
+
+  sourceBrowse.onTick = []() {
+    if(application.modeApply.checked()) {
+      string filename = OS::fileOpen(application, "UPS patches\t*.ups");
+      if(filename == "") return;
+      application.sourcePath.setText(filename);
+    } else {
+      string filename = OS::fileOpen(application, "All files\t*");
+      if(filename == "") return;
+      application.sourcePath.setText(filename);
+    }
+    application.synchronize();
+  };
+
+  targetBrowse.onTick = []() {
+    if(application.modeApply.checked()) {
+      string filename = OS::fileSave(application, "All files\t*");
+      if(filename == "") return;
+      application.targetPath.setText(filename);
+    } else {
+      string filename = OS::fileOpen(application, "All files\t*");
+      if(filename == "") return;
+      application.targetPath.setText(filename);
+    }
+    application.synchronize();
+  };
+
+  okButton.onTick = []() {
+    application.prepare();
+    if(application.modeApply.checked()) {
+      application.applyPatch(application.sourcePath.text(), application.targetPath.text());
+    } else {
+      application.createPatch(application.sourcePath.text(), application.targetPath.text());
+    }
+    OS::quit();
+  };
+
+  onClose = []() {
+    OS::quit();
+    return true;
+  };
 }
 
-void UpsetWindow::selectPatchFile() {
-  QString filename = QFileDialog::getOpenFileName(this, "Select Patch File", "", "UPS Patches (*.ups)");
-  patchFilename->setText(filename);
-  if(patchFilename->text() != "" && patchFilename->text() == targetFilename->text()) {
-    QMessageBox::warning(this, "Upset", "<b>Warning:</b><br>Patch filename cannot be the same as the target filename.");
-    targetFilename->setText("");
-  }
-  applyButton->setEnabled(patchFilename->text() != "" && targetFilename->text() != "");
-}
-
-void UpsetWindow::selectTargetFile() {
-  QString filename = QFileDialog::getOpenFileName(this, "Select Target File", "", "All Files (*)");
-  targetFilename->setText(filename);
-  if(patchFilename->text() != "" && patchFilename->text() == targetFilename->text()) {
-    QMessageBox::warning(this, "Upset", "<b>Warning:</b><br>Patch filename cannot be the same as the target filename.");
-    targetFilename->setText("");
-  }
-  applyButton->setEnabled(patchFilename->text() != "" && targetFilename->text() != "");
-}
-
-void UpsetWindow::applyPatch() {
-  string patchName = patchFilename->text().toUtf8().constData();
-  string inputName = targetFilename->text().toUtf8().constData();
-  string outputName = sprint(inputName, ".tmp");
-  string backupName = sprint(inputName, ".bak");
-
-  try {
-    if(patchFile.open(patchName, file::mode_read) == false) {
-      throw "Error opening patch file for reading.";
-    }
-
-    if(inputFile.open(inputName, file::mode_readwrite) == false) {
-      throw "Error opening target file for reading.";
-    }
-
-    if(patchFile.size() < 18) throw "Patch file is invalid or corrupt.";
-
-    patchChecksum = ~0;
-    inputChecksum = ~0;
-    outputChecksum = ~0;
-
-    if(patchRead() != 'U') throw "Patch file is invalid or corrupt.";
-    if(patchRead() != 'P') throw "Patch file is invalid or corrupt.";
-    if(patchRead() != 'S') throw "Patch file is invalid or corrupt.";
-    if(patchRead() != '1') throw "Patch file is invalid or corrupt.";
-
-    unsigned fxSize = decode();
-    unsigned fySize = decode();
-    if(inputFile.size() != fxSize && inputFile.size() != fySize) throw "Input file does not match the file specified in the patch.";
-    outputTargetSize = (inputFile.size() == fxSize ? fySize : fxSize);
-
-    patchFilename->setEnabled(false);
-    patchSelect->setEnabled(false);
-    targetFilename->setEnabled(false);
-    targetSelect->setEnabled(false);
-    progressBar->setVisible(true);
-    applyButton->setEnabled(false);
-
-    if(outputFile.open(outputName, file::mode_write) == false) {
-      throw "Error opening target file for writing.";
-    }
-
-    progress = 0;
-    unsigned relative = 0;
-    while(patchFile.offset() < patchFile.size() - 12) {
-      unsigned offset = relative;
-      relative += decode();
-      while(offset++ < relative) outputWrite(inputRead());
-      while(true) {
-        uint8_t x = inputRead();
-        uint8_t y = patchRead();
-        outputWrite(x ^ y);
-        if(y == 0) break;
-      }
-    }
-
-    inputChecksum = ~inputChecksum;
-    outputChecksum = ~outputChecksum;
-
-    uint32_t fxChecksum = 0, fyChecksum = 0;
-    for(unsigned i = 0; i < 4; i++) fxChecksum |= patchRead() << (i << 3);
-    for(unsigned i = 0; i < 4; i++) fyChecksum |= patchRead() << (i << 3);
-
-    if((inputChecksum != fxChecksum || inputFile.size() != fxSize)
-    && (inputChecksum != fyChecksum || inputFile.size() != fySize)) {
-      throw "Input file does not match the file specified in the patch.";
-    }
-
-    if((outputChecksum != fxChecksum || outputTargetSize != fxSize)
-    && (outputChecksum != fyChecksum || outputTargetSize != fySize)) {
-      throw "Output file does not match the file specified in the patch.";
-    }
-
-    uint32_t checksum = ~patchChecksum, fzChecksum = 0;
-    for(unsigned i = 0; i < 4; i++) fzChecksum |= patchRead() << (i << 3);
-    if(checksum != fzChecksum) throw "Patch file is corrupt.";
-
-    patchFile.close();
-    inputFile.close();
-    outputFile.close();
-
-    QMessageBox::information(this, "Upset", "Patching was successful!");
-
-    if(QFile::exists(backupName)) QFile::remove(backupName);
-    QFile::rename(inputName, backupName);
-    QFile::rename(outputName, inputName);
-
-    QApplication::quit();
-  } catch(const char *error) {
-    if(patchFile.open()) patchFile.close();
-    if(inputFile.open()) inputFile.close();
-    if(outputFile.open()) outputFile.close();
-    if(QFile::exists(outputName)) QFile::remove(outputName);
-
-    QMessageBox::critical(this, "Upset", sprint("<b>Error:</b><br>", error));
-
-    patchFilename->setEnabled(true);
-    patchSelect->setEnabled(true);
-    targetFilename->setEnabled(true);
-    targetSelect->setEnabled(true);
-    progressBar->setVisible(false);
-    applyButton->setEnabled(true);
+void Application::synchronize() {
+  if(sourcePath.text() == "" || targetPath.text() == "") {
+    okButton.setEnabled(false);
+  } else {
+    okButton.setEnabled(true);
   }
 }
 
-unsigned UpsetWindow::decode() {
-  unsigned offset = 0, shift = 1;
-  while(true) {
-    uint8_t x = patchRead();
-    offset += (x & 0x7f) * shift;
-    if(x & 0x80) break;
-    shift <<= 7;
-    offset += shift;
+void Application::prepare() {
+  sourcePath.setEnabled(false);
+  sourceBrowse.setEnabled(false);
+  targetPath.setEnabled(false);
+  targetBrowse.setEnabled(false);
+  okButton.setEnabled(false);
+  progressValue = 0;
+  progressBar.setPosition(0);
+  progressBar.setVisible(true);
+}
+
+void Application::progress(unsigned offset, unsigned length) {
+  unsigned currentProgress = (double)offset / (double)length * 100.0;
+  if(currentProgress > progressValue) {
+    progressBar.setPosition(progressValue = currentProgress);
+    OS::run();
   }
-  return offset;
 }
 
-uint8_t UpsetWindow::patchRead() {
-  if(patchFile.offset() >= patchFile.size()) throw "Patch file is corrupt.";
-  uint8_t data = patchFile.read();
-  patchChecksum = crc32_adjust(patchChecksum, data);
-  return data;
-}
+void Application::applyPatch(string sourceFilename, string targetFilename) {
+  if(file::exists(sourceFilename) == false) { MessageWindow::warning(application, "UPS patch does not exist"); return; }
+  if(file::exists(targetFilename) == false) { MessageWindow::warning(application, "Target file does not exist"); return; }
+  if(sourceFilename == targetFilename) { MessageWindow::warning(application, "Source file and target file cannot be the same"); return; }
+  if(striend(sourceFilename, ".ups") == false) { MessageWindow::warning(application, "UPS patch extension must be .ups"); return; }
+  if(striend(targetFilename, ".ups") == true) { MessageWindow::warning(application, "Target file extension must not be .ups"); return; }
+  string outputFilename = string(nall::basename(targetFilename), ".bak");
+  file targetExpand;
+  if(targetExpand.open(outputFilename, file::mode_write) == false) { MessageWindow::warning(application, "Cannot open target file for writing"); return; }
 
-uint8_t UpsetWindow::inputRead() {
-  if(inputFile.offset() >= inputFile.size()) return 0x00;
-  uint8_t data = inputFile.read();
-  inputChecksum = crc32_adjust(inputChecksum, data);
-  return data;
-}
+  filemap patchFile, sourceFile, targetFile;
+  patchFile.open(sourceFilename, filemap::mode_read);
+  sourceFile.open(targetFilename, filemap::mode_read);
+  unsigned targetSize = 0;
 
-void UpsetWindow::outputWrite(uint8_t data) {
-  updateProgressBar();
-  if(outputFile.offset() >= outputTargetSize) return;
-  outputChecksum = crc32_adjust(outputChecksum, data);
-  outputFile.write(data);
-}
+  ups patcher;
+  patcher.apply(
+    patchFile.handle(), patchFile.size(),
+    sourceFile.handle(), sourceFile.size(),
+    (uint8_t*)0, targetSize
+  );
 
-void UpsetWindow::updateProgressBar() {
-  unsigned inputProgress = 100 * inputFile.offset() / inputFile.size();
-  unsigned outputProgress = 100 * outputFile.offset() / outputTargetSize;
-  unsigned newProgress = min(inputProgress, outputProgress);
+  targetExpand.seek(targetSize);
+  targetExpand.close();
+  targetFile.open(outputFilename, filemap::mode_readwrite);
+  targetSize = targetFile.size();
 
-  if(newProgress != progress) {
-    progress = newProgress;
-    progressBar->setValue(progress);
-    QApplication::processEvents();
+  patcher.progress = { &Application::progress, this };
+  ups::result_t result = patcher.apply(
+    patchFile.handle(), patchFile.size(),
+    sourceFile.handle(), sourceFile.size(),
+    targetFile.handle(), targetSize
+  );
+
+  patchFile.close();
+  sourceFile.close();
+  targetFile.close();
+
+  if(result != ups::result_t::success) {
+    unlink(outputFilename);
+    MessageWindow::warning(application, "Patching failed");
+    return;
   }
+
+  string tempFilename = string(nall::basename(targetFilename), ".tmp");
+  rename(targetFilename, tempFilename);
+  rename(outputFilename, targetFilename);
+  rename(tempFilename, outputFilename);
+
+  MessageWindow::information(application, string(
+    "Patching was successful!\n"
+    "Backup file name: ", notdir(outputFilename)
+  ));
+}
+
+void Application::createPatch(string sourceFilename, string targetFilename) {
+  if(file::exists(sourceFilename) == false) { MessageWindow::warning(application, "Source file does not exist"); return; }
+  if(file::exists(targetFilename) == false) { MessageWindow::warning(application, "Target file does not exist"); return; }
+  if(striend(sourceFilename, ".ups") == true) { MessageWindow::warning(application, "Source file extension must not be .ups"); return; }
+  if(striend(targetFilename, ".ups") == true) { MessageWindow::warning(application, "Target file extension must not be .ups"); return; }
+  string outputFilename = string(nall::basename(sourceFilename), ".ups");
+
+  filemap sourceFile, targetFile;
+  sourceFile.open(sourceFilename, filemap::mode_read);
+  targetFile.open(targetFilename, filemap::mode_read);
+
+  ups patcher;
+  patcher.progress = { &Application::progress, this };
+  ups::result_t result = patcher.create(
+    sourceFile.handle(), sourceFile.size(),
+    targetFile.handle(), targetFile.size(),
+    outputFilename
+  );
+
+  if(result != ups::result_t::success) {
+    unlink(outputFilename);
+    MessageWindow::warning(application, "Patch creation failed");
+    return;
+  }
+
+  MessageWindow::information(application, string(
+    "Patch creation was successful!\n"
+    "Output file name: ", notdir(outputFilename)
+  ));
+}
+
+void Application::main(int argc, char **argv) {
+  initialize();
+  setVisible(true);
+  OS::main();
 }
 
 int main(int argc, char **argv) {
-  QApplication app(argc, argv);
-  upsetWindow = new UpsetWindow;
-  return app.exec();
+  application.main(argc, argv);
+  return 0;
 }

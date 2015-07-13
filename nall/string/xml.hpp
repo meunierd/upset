@@ -65,21 +65,26 @@ inline string xml_element::parse() const {
     }
 
     if(strbegin(source, "<!--")) {
-      signed pos = strpos(source, "-->");
-      if(pos == -1) return "";
-      source += pos + 3;
-      continue;
+      if(auto pos = strpos(source, "-->")) {
+        source += pos() + 3;
+        continue;
+      } else {
+        return "";
+      }
     }
 
     if(strbegin(source, "<![CDATA[")) {
-      signed pos = strpos(source, "]]>");
-      if(pos == -1) return "";
-      string cdata = substr(source, 9, pos - 9);
-      data << cdata;
-      offset += strlen(cdata);
-
-      source += offset + 3;
-      continue;
+      if(auto pos = strpos(source, "]]>")) {
+        if(pos() - 9 > 0) {
+          string cdata = substr(source, 9, pos() - 9);
+          data << cdata;
+          offset += strlen(cdata);
+        }
+        source += 9 + offset + 3;
+        continue;
+      } else {
+        return "";
+      }
     }
 
     //reject illegal characters
@@ -115,10 +120,10 @@ inline bool xml_element::parse_head(string data) {
   data.qreplace("\t", " ");
   data.qreplace("\r", " ");
   data.qreplace("\n", " ");
-  while(qstrpos(data, "  ") >= 0) data.qreplace("  ", " ");
+  while(qstrpos(data, "  ")) data.qreplace("  ", " ");
   data.qreplace(" =", "=");
   data.qreplace("= ", "=");
-  rtrim(data);
+  data.rtrim();
 
   lstring part;
   part.qsplit(" ", data);
@@ -134,10 +139,10 @@ inline bool xml_element::parse_head(string data) {
     xml_attribute attr;
     attr.name = side[0];
     attr.content = side[1];
-    if(strbegin(attr.content, "\"") && strend(attr.content, "\"")) trim_once(attr.content, "\"");
-    else if(strbegin(attr.content, "'") && strend(attr.content, "'")) trim_once(attr.content, "'");
+    if(strbegin(attr.content, "\"") && strend(attr.content, "\"")) attr.content.trim_once("\"");
+    else if(strbegin(attr.content, "'") && strend(attr.content, "'")) attr.content.trim_once("'");
     else throw "...";
-    attribute.add(attr);
+    attribute.append(attr);
   }
 }
 
@@ -153,34 +158,38 @@ inline bool xml_element::parse_body(const char *&data) {
     }
 
     if(strbegin(data, "!--")) {
-      signed offset = strpos(data, "-->");
-      if(offset == -1) throw "...";
-      data += offset + 3;
-      continue;
+      if(auto offset = strpos(data, "-->")) {
+        data += offset() + 3;
+        continue;
+      } else {
+        throw "...";
+      }
     }
 
     if(strbegin(data, "![CDATA[")) {
-      signed offset = strpos(data, "]]>");
-      if(offset == -1) throw "...";
-      data += offset + 3;
-      continue;
+      if(auto offset = strpos(data, "]]>")) {
+        data += offset() + 3;
+        continue;
+      } else {
+        throw "...";
+      }
     }
 
-    signed offset = strpos(data, ">");
-    if(offset == -1) throw "...";
+    auto offset = strpos(data, ">");
+    if(!offset) throw "...";
 
-    string tag = substr(data, 0, offset);
-    data += offset + 1;
+    string tag = substr(data, 0, offset());
+    data += offset() + 1;
     const char *content_begin = data;
 
     bool self_terminating = false;
 
     if(strend(tag, "?") == true) {
       self_terminating = true;
-      rtrim_once(tag, "?");
+      tag.rtrim_once("?");
     } else if(strend(tag, "/") == true) {
       self_terminating = true;
-      rtrim_once(tag, "/");
+      tag.rtrim_once("/");
     }
 
     parse_head(tag);
@@ -195,23 +204,23 @@ inline bool xml_element::parse_body(const char *&data) {
           if(length > 0) content = substr(content_begin, 0, length);
 
           data++;
-          offset = strpos(data, ">");
-          if(offset == -1) throw "...";
+          auto offset = strpos(data, ">");
+          if(!offset) throw "...";
 
-          tag = substr(data, 0, offset);
-          data += offset + 1;
+          tag = substr(data, 0, offset());
+          data += offset() + 1;
 
           tag.replace("\t", " ");
           tag.replace("\r", " ");
           tag.replace("\n", " ");
-          while(strpos(tag, "  ") >= 0) tag.replace("  ", " ");
-          rtrim(tag);
+          while(strpos(tag, "  ")) tag.replace("  ", " ");
+          tag.rtrim();
 
           if(name != tag) throw "...";
           return true;
         }
       } else {
-        element.add(node);
+        element.append(node);
       }
     }
   }
@@ -240,7 +249,7 @@ inline xml_element xml_parse(const char *data) {
       if(node.parse_body(data) == false) {
         break;
       } else {
-        self.element.add(node);
+        self.element.append(node);
       }
     }
 
