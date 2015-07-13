@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=upset
+Comment=UPS patcher
+Exec=upset
+Icon=
+Terminal=false
+Type=Application
+Categories=Accessory;Utility;
